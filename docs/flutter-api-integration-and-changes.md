@@ -13,6 +13,9 @@ This service does not:
 - Persist data to a database
 - Replace business authorization from Spring Boot
 
+Primary deployed base URL:
+- https://sharecart-ai-services.onrender.com
+
 ## 2. End-to-End System Placement
 
 Current ShareCart architecture:
@@ -28,12 +31,37 @@ So the runtime flow is:
 - Extraction response consumer: Flutter
 - Final storage and business workflows: Spring Boot
 
+## 2.1 OCR Replacement Decision (Important)
+
+This integration is a replacement of the current on-device OCR path in Flutter.
+
+What is being replaced:
+- Existing Flutter OCR using google_mlkit_text_recognition in the price-capture flow
+
+What replaces it:
+- Flutter uploads the image to this ShareCart AI service
+- This service performs image preprocessing + OpenAI-based extraction
+- Flutter receives structured grocery items/prices and presents them for user confirmation
+
+Expected Flutter changes:
+- Keep image capture UI (camera/gallery) as-is
+- Remove ML Kit OCR extraction logic from runtime flow
+- Call POST /api/v1/receipt/extract with multipart image + scanType
+- Continue to send user-confirmed final data to Spring Boot APIs for persistence
+
+Scope note:
+- Authentication source remains Spring Boot JWT
+- AI service is extraction-only and does not replace Spring Boot business APIs
+
 ## 3. Detailed Request/Response Flow (Flutter <-> AI API)
 
 ### 3.1 Request sent by Flutter
 
 Endpoint:
 - POST /api/v1/receipt/extract
+
+Primary production request URL:
+- POST https://sharecart-ai-services.onrender.com/api/v1/receipt/extract
 
 Headers:
 - Authorization: Bearer <jwt>
@@ -227,4 +255,7 @@ Run tests:
 - pytest app/tests -q
 
 Run smoke test with real token and image:
+- API_URL=https://sharecart-ai-services.onrender.com JWT_TOKEN=<token> IMAGE_PATH=/path/to/image.jpg SCAN_TYPE=RECEIPT ./scripts/smoke_test.sh
+
+Optional local override:
 - API_URL=http://localhost:8000 JWT_TOKEN=<token> IMAGE_PATH=/path/to/image.jpg SCAN_TYPE=RECEIPT ./scripts/smoke_test.sh
