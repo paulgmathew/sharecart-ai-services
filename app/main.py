@@ -14,6 +14,9 @@ from app.config.settings import get_settings
 from app.middleware.request_context import RequestContextMiddleware
 
 
+logger = structlog.get_logger(__name__)
+
+
 def configure_logging(log_level: str) -> None:
     logging.basicConfig(level=log_level)
     structlog.configure(
@@ -47,7 +50,14 @@ app.include_router(receipt_router, prefix=settings.api_v1_prefix)
 
 
 @app.exception_handler(HTTPException)
-async def http_exception_handler(_request: Request, exc: HTTPException) -> JSONResponse:
+async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    logger.warning(
+        "http_exception",
+        method=request.method,
+        path=request.url.path,
+        status_code=exc.status_code,
+        detail=str(exc.detail),
+    )
     return JSONResponse(
         status_code=exc.status_code,
         content={"success": False, "message": str(exc.detail)},
@@ -55,7 +65,15 @@ async def http_exception_handler(_request: Request, exc: HTTPException) -> JSONR
 
 
 @app.exception_handler(RequestValidationError)
-async def validation_exception_handler(_request: Request, _exc: RequestValidationError) -> JSONResponse:
+async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    errors = exc.errors()
+    logger.warning(
+        "request_validation_error",
+        method=request.method,
+        path=request.url.path,
+        error_count=len(errors),
+        first_error=(errors[0] if errors else None),
+    )
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content={"success": False, "message": "Validation error"},
@@ -63,7 +81,13 @@ async def validation_exception_handler(_request: Request, _exc: RequestValidatio
 
 
 @app.exception_handler(Exception)
-async def unhandled_exception_handler(_request: Request, _exc: Exception) -> JSONResponse:
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    logger.exception(
+        "unhandled_exception",
+        method=request.method,
+        path=request.url.path,
+        error_type=type(exc).__name__,
+    )
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={"success": False, "message": "Internal server error"},

@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import time
 
 import cv2
 import numpy as np
+import structlog
 
 from app.config.settings import Settings
+
+
+logger = structlog.get_logger(__name__)
 
 
 class ImagePreprocessingService:
@@ -13,7 +18,30 @@ class ImagePreprocessingService:
         self._settings = settings
 
     async def preprocess(self, image_bytes: bytes) -> bytes:
-        return await asyncio.to_thread(self._preprocess_sync, image_bytes)
+        start = time.perf_counter()
+        logger.info(
+            "image_preprocessing_started",
+            input_size_bytes=len(image_bytes),
+        )
+        try:
+            processed = await asyncio.to_thread(self._preprocess_sync, image_bytes)
+        except Exception:
+            elapsed_ms = (time.perf_counter() - start) * 1000
+            logger.exception(
+                "image_preprocessing_failed",
+                input_size_bytes=len(image_bytes),
+                preprocessing_time_ms=round(elapsed_ms, 2),
+            )
+            raise
+
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        logger.info(
+            "image_preprocessing_completed",
+            input_size_bytes=len(image_bytes),
+            output_size_bytes=len(processed),
+            preprocessing_time_ms=round(elapsed_ms, 2),
+        )
+        return processed
 
     def _preprocess_sync(self, image_bytes: bytes) -> bytes:
         image_np = np.frombuffer(image_bytes, dtype=np.uint8)
@@ -21,11 +49,27 @@ class ImagePreprocessingService:
         if image is None:
             raise ValueError("Unable to decode image")
 
+        orig_h, orig_w = image.shape[:2]
+        logger.info(
+            "image_preprocessing_decoded",
+            width=orig_w,
+            height=orig_h,
+        )
+
         image = self._resize_large_image(image)
         image = self._deskew(image)
         image = self._enhance_contrast(image)
         image = self._normalize_brightness(image)
         image = self._crop_likely_receipt_region(image)
+
+        final_h, final_w = image.shape[:2]
+        logger.info(
+            "image_preprocessing_transforms_completed",
+            original_width=orig_w,
+            original_height=orig_h,
+            final_width=final_w,
+            final_height=final_h,
+        )
 
         success, encoded = cv2.imencode(".jpg", image, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
         if not success:

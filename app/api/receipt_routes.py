@@ -42,12 +42,86 @@ async def extract_receipt(
 ) -> ExtractionResponse:
     del latitude, longitude
 
-    validate_file_metadata(image, settings)
-    image_bytes = await image.read()
-    await image.close()
+    logger.info(
+        "receipt_extract_request_received",
+        user_id=current_user.user_id,
+        scan_type=scanType.value,
+        filename=image.filename,
+        content_type=image.content_type,
+    )
 
-    validate_file_size(image_bytes, settings)
-    validate_image_bytes(image_bytes)
+    try:
+        validate_file_metadata(image, settings)
+    except HTTPException as exc:
+        logger.warning(
+            "receipt_extract_file_metadata_validation_failed",
+            user_id=current_user.user_id,
+            scan_type=scanType.value,
+            filename=image.filename,
+            content_type=image.content_type,
+            detail=str(exc.detail),
+        )
+        raise
+
+    logger.info(
+        "receipt_extract_file_metadata_validated",
+        user_id=current_user.user_id,
+        scan_type=scanType.value,
+        filename=image.filename,
+        content_type=image.content_type,
+    )
+
+    image_bytes = b""
+    try:
+        image_bytes = await image.read()
+        logger.info(
+            "receipt_extract_image_read",
+            user_id=current_user.user_id,
+            scan_type=scanType.value,
+            image_size_bytes=len(image_bytes),
+        )
+    finally:
+        await image.close()
+
+    try:
+        validate_file_size(image_bytes, settings)
+        max_size_mb = round(settings.max_upload_bytes / (1024 * 1024), 2)
+        logger.info(
+            "receipt_extract_file_size_validated",
+            user_id=current_user.user_id,
+            scan_type=scanType.value,
+            image_size_bytes=len(image_bytes),
+            max_size_mb=max_size_mb,
+        )
+    except HTTPException as exc:
+        max_size_mb = round(settings.max_upload_bytes / (1024 * 1024), 2)
+        logger.warning(
+            "receipt_extract_file_size_validation_failed",
+            user_id=current_user.user_id,
+            scan_type=scanType.value,
+            image_size_bytes=len(image_bytes),
+            max_size_mb=max_size_mb,
+            detail=str(exc.detail),
+        )
+        raise
+
+    try:
+        validate_image_bytes(image_bytes)
+        logger.info(
+            "receipt_extract_image_content_validated",
+            user_id=current_user.user_id,
+            scan_type=scanType.value,
+            image_size_bytes=len(image_bytes),
+        )
+    except HTTPException as exc:
+        logger.warning(
+            "receipt_extract_image_content_validation_failed",
+            user_id=current_user.user_id,
+            scan_type=scanType.value,
+            image_size_bytes=len(image_bytes),
+            detail=str(exc.detail),
+        )
+        raise
 
     start = time.perf_counter()
 

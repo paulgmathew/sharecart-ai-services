@@ -7,10 +7,14 @@ from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 
 from fastapi import Depends, HTTPException, status
+import structlog
 
 from app.config.settings import Settings, get_settings
 from app.middleware.auth_middleware import get_current_user
 from app.models.auth_models import CurrentUser
+
+
+logger = structlog.get_logger(__name__)
 
 
 @dataclass
@@ -59,7 +63,24 @@ class RateLimiter:
         now = datetime.now(timezone.utc)
         usage = await self._store.increment_and_get(user_id=user_id, now=now)
 
+        logger.info(
+            "rate_limit_usage",
+            user_id=user_id,
+            hourly_count=usage.hourly_count,
+            daily_count=usage.daily_count,
+            hourly_limit=self._hourly_limit,
+            daily_limit=self._daily_limit,
+        )
+
         if usage.hourly_count > self._hourly_limit or usage.daily_count > self._daily_limit:
+            logger.warning(
+                "rate_limit_exceeded",
+                user_id=user_id,
+                hourly_count=usage.hourly_count,
+                daily_count=usage.daily_count,
+                hourly_limit=self._hourly_limit,
+                daily_limit=self._daily_limit,
+            )
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail="Rate limit exceeded",
