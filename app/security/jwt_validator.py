@@ -36,7 +36,7 @@ class JWTValidator:
                 token,
                 self._settings.jwt_secret,
                 algorithms=[self._settings.jwt_algorithm],
-                options={"require": ["exp"]},
+                options={"require": ["sub", "exp"]},
             )
         except ExpiredSignatureError as exc:
             logger.warning(
@@ -63,16 +63,15 @@ class JWTValidator:
                 detail="Invalid token",
             ) from exc
 
-        user_id = payload.get("userId") or payload.get("user_id") or payload.get("sub")
+        user_id = payload.get("sub")
         email = payload.get("email")
         exp = payload.get("exp")
 
-        if not user_id or not email or not exp:
+        if not user_id or not exp:
             logger.warning(
                 "jwt_validation_claims_invalid",
                 token_claim_keys=sorted(list(payload.keys())),
                 has_user_id=bool(user_id),
-                has_email=bool(email),
                 has_exp=bool(exp),
             )
             raise HTTPException(
@@ -86,4 +85,5 @@ class JWTValidator:
             token_claim_keys=sorted(list(payload.keys())),
         )
 
-        return CurrentUser(user_id=str(user_id), email=str(email), exp=int(exp))
+        email_value = str(email) if email is not None else None
+        return CurrentUser(user_id=str(user_id), email=email_value, exp=int(exp))

@@ -37,7 +37,7 @@ def create_png_bytes() -> bytes:
 def create_token(user_id: str) -> str:
     settings = get_settings()
     payload = {
-        "userId": user_id,
+        "sub": user_id,
         "email": f"{user_id}@test.com",
         "exp": int((datetime.now(timezone.utc) + timedelta(minutes=30)).timestamp()),
     }

@@ -17,7 +17,7 @@ class Settings(BaseModel):
     log_level: str = "INFO"
 
     jwt_secret: str = Field(default="change-me", min_length=8)
-    jwt_algorithm: str = "HS256"
+    jwt_algorithm: str = "HS512"
 
     openai_api_key: str = ""
     openai_model: str = "gpt-4.1-mini"
@@ -52,8 +52,8 @@ class Settings(BaseModel):
             host=os.getenv("HOST", "0.0.0.0"),
             port=int(os.getenv("PORT", "8000")),
             log_level=os.getenv("LOG_LEVEL", "INFO"),
-            jwt_secret=os.getenv("JWT_SECRET", "change-me"),
-            jwt_algorithm=os.getenv("JWT_ALGORITHM", "HS256"),
+            jwt_secret=os.getenv("APP_JWT_SECRET", os.getenv("JWT_SECRET", "change-me")),
+            jwt_algorithm=os.getenv("APP_JWT_ALGORITHM", os.getenv("JWT_ALGORITHM", "HS512")),
             openai_api_key=os.getenv("OPENAI_API_KEY", ""),
             openai_model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"),
             openai_timeout_seconds=float(os.getenv("OPENAI_TIMEOUT_SECONDS", "25")),

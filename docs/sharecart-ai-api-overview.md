@@ -33,6 +33,9 @@ This API intentionally does not:
 Primary endpoint:
 - POST /api/v1/receipt/extract
 
+Primary production URL:
+- https://sharecart-ai-services.onrender.com/api/v1/receipt/extract
+
 Expected request:
 - Header: Authorization: Bearer <jwt>
 - Content-Type: multipart/form-data
@@ -45,6 +48,9 @@ Expected request:
 Health endpoints:
 - GET /health
 - GET /ready
+
+Response tracing:
+- `X-Request-ID` header is returned for request correlation.
 
 ## 5. Processing Flow
 
@@ -67,10 +73,16 @@ Request lifecycle:
 
 Authentication model:
 - JWT validation is local (no round-trip to Spring Boot)
-- HS256 signature verification
+- HMAC signature verification using the same shared secret as Spring Boot
+- Algorithm is read from `APP_JWT_ALGORITHM` (fallback: `JWT_ALGORITHM`), default `HS512`
 - Expiration check
 - Malformed token rejection
-- Claims extraction: userId, email, exp
+- Required claims: `sub`, `exp`
+- Optional claim: `email`
+
+Environment variables used by this service:
+- `APP_JWT_SECRET` (fallback: `JWT_SECRET`)
+- `APP_JWT_ALGORITHM` (fallback: `JWT_ALGORITHM`)
 
 Authorization model:
 - If token is valid, request is allowed
@@ -108,6 +120,12 @@ Common error statuses:
 - 429 Too Many Requests
 - 500 Internal Server Error
 
+Typical `401` causes:
+- Missing or invalid bearer token format
+- Token expired
+- Invalid token signature/algorithm/structure
+- Missing required claims (`sub`, `exp`)
+
 ## 9. Technologies Used
 
 Language and runtime:
@@ -123,6 +141,7 @@ AI integration:
 Security and validation:
 - PyJWT
 - Pydantic v2
+- NumPy
 
 Image handling and preprocessing:
 - Pillow
@@ -148,6 +167,7 @@ This API is implemented with production orientation:
 - Modular project structure with separated concerns
 - Dependency-based authentication and services
 - Structured JSON logging
+- Request-scoped tracing with `request_id` and response `X-Request-ID`
 - Consistent JSON error responses
 - Stateless architecture for horizontal scalability
 - Test coverage for auth, extraction route behavior, and rate limiting
