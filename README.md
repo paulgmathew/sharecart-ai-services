@@ -186,6 +186,40 @@ Run:
 docker run --rm -p 8000:8000 --env-file .env sharecart-ai-service:latest
 ```
 
+## Deploy on Render
+
+This project now includes Render blueprint config in [render.yaml](render.yaml).
+
+### Option A: Blueprint deploy (recommended)
+
+1. Push this repository to GitHub.
+2. In Render, click New + and select Blueprint.
+3. Connect the repository.
+4. Render detects [render.yaml](render.yaml) and creates the web service.
+5. In Render Environment settings, set secret values:
+	- JWT_SECRET (must match Spring Boot JWT secret)
+	- OPENAI_API_KEY
+6. Deploy.
+
+### Option B: Manual Web Service (Docker)
+
+1. In Render, create a new Web Service.
+2. Select this repository.
+3. Set runtime to Docker.
+4. Keep Dockerfile path as Dockerfile.
+5. Set health check path to /health.
+6. Add the same required environment variables as in [render.yaml](render.yaml), plus secrets:
+	- JWT_SECRET
+	- OPENAI_API_KEY
+7. Deploy.
+
+### Important Render notes
+
+- Container port: Dockerfile now binds Uvicorn to Render-provided PORT automatically.
+- APP_ENV should be prod (not production).
+- If your Flutter app calls this service from a different domain, set CORS_ORIGINS to your app origin(s) instead of *.
+- In-memory rate limiting works for single-instance MVP; for multi-instance scaling use shared storage (for example Redis).
+
 ## Testing
 
 ```bash
