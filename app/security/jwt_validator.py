@@ -3,9 +3,13 @@ from __future__ import annotations
 from fastapi import HTTPException, status
 import jwt
 from jwt import ExpiredSignatureError, InvalidTokenError
+import structlog
 
 from app.config.settings import Settings
 from app.models.auth_models import CurrentUser
+
+
+logger = structlog.get_logger(__name__)
 
 
 class JWTValidator:
@@ -13,6 +17,20 @@ class JWTValidator:
         self._settings = settings
 
     def validate(self, token: str) -> CurrentUser:
+        header_alg = None
+        claim_keys: list[str] = []
+        try:
+            header = jwt.get_unverified_header(token)
+            header_alg = header.get("alg")
+        except Exception:
+            logger.warning("jwt_unverified_header_parse_failed")
+
+        try:
+            unverified_claims = jwt.decode(token, options={"verify_signature": False})
+            claim_keys = sorted(list(unverified_claims.keys()))
+        except Exception:
+            logger.warning("jwt_unverified_claims_parse_failed")
+
         try:
             payload = jwt.decode(
                 token,
@@ -21,11 +39,25 @@ class JWTValidator:
                 options={"require": ["exp"]},
             )
         except ExpiredSignatureError as exc:
+            logger.warning(
+                "jwt_validation_expired",
+                expected_algorithm=self._settings.jwt_algorithm,
+                token_header_algorithm=header_alg,
+                token_claim_keys=claim_keys,
+            )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Token expired",
             ) from exc
         except InvalidTokenError as exc:
+            logger.warning(
+                "jwt_validation_invalid",
+                expected_algorithm=self._settings.jwt_algorithm,
+                token_header_algorithm=header_alg,
+                token_claim_keys=claim_keys,
+                jwt_error_type=type(exc).__name__,
+                jwt_error=str(exc),
+            )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid token",
@@ -36,9 +68,22 @@ class JWTValidator:
         exp = payload.get("exp")
 
         if not user_id or not email or not exp:
+            logger.warning(
+                "jwt_validation_claims_invalid",
+                token_claim_keys=sorted(list(payload.keys())),
+                has_user_id=bool(user_id),
+                has_email=bool(email),
+                has_exp=bool(exp),
+            )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid token claims",
             )
+
+        logger.info(
+            "jwt_validation_succeeded",
+            user_id=str(user_id),
+            token_claim_keys=sorted(list(payload.keys())),
+        )
 
         return CurrentUser(user_id=str(user_id), email=str(email), exp=int(exp))
