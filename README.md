@@ -75,14 +75,68 @@ Content type:
 - `multipart/form-data`
 
 Form fields:
-- `image` (required)
-- `scanType` (required enum: `RECEIPT`, `PRICE_TAG`)
-- `latitude` (optional)
-- `longitude` (optional)
+- `image` (required): Image file to process
+- `scanType` (required enum: `RECEIPT`, `PRICE_TAG`): Type of document being scanned
+- `latitude` (optional): GPS latitude of scan location (for future geo-tagging)
+- `longitude` (optional): GPS longitude of scan location (for future geo-tagging)
 
 Validation:
 - Max upload: 10 MB
 - Allowed extensions: `jpg`, `jpeg`, `png`, `webp`
+
+### Request Example
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/receipt/extract" \
+  -H "Authorization: Bearer <jwt_token>" \
+  -F "image=@receipt.jpg" \
+  -F "scanType=RECEIPT" \
+  -F "latitude=40.7128" \
+  -F "longitude=-74.0060"
+```
+
+### Response Examples
+
+**Success (200)**:
+```json
+{
+  "success": true,
+  "storeName": "Whole Foods Market",
+  "confidence": 0.95,
+  "scanType": "RECEIPT",
+  "items": [
+    {
+      "name": "Organic Milk",
+      "price": 4.99,
+      "quantity": "1",
+      "unit": "gal",
+      "confidence": 0.98
+    },
+    {
+      "name": "Bread",
+      "price": 3.49,
+      "quantity": null,
+      "unit": null,
+      "confidence": 0.92
+    }
+  ]
+}
+```
+
+**Failure (200, but success=false)**:
+```json
+{
+  "success": false,
+  "message": "Unable to extract items from image"
+}
+```
+
+**Error Responses**:
+- `401`: Missing or invalid JWT token
+- `413`: File too large (> 10 MB)
+- `422`: Validation error (wrong format, missing fields)
+- `429`: Rate limit exceeded
+- `500`: AI processing error (OpenAI API failure)
 
 ## Health Endpoints
 
@@ -142,6 +196,14 @@ Logged fields include:
 
 Never logs JWT token or image content.
 
+## Prerequisites
+
+- **Python 3.12+** (required)
+- **System dependencies** (for local development):
+  - macOS: `brew install opencv` (Homebrew)
+  - Ubuntu/Debian: `apt-get install libgl1 libglib2.0-0` (for OpenCV)
+  - Windows: Visual C++ build tools
+
 ## Environment
 
 The repository now includes a local `.env` with production-oriented defaults.
@@ -156,12 +218,23 @@ Required values:
 
 You can still use `.env.example` as a reference template.
 
+### Environment Variables Explained
+
+| Variable | Purpose | Default |
+|----------|---------|----------|
+| `JWT_SECRET` | Shared secret from Spring Boot backend | `change-me` |
+| `OPENAI_API_KEY` | OpenAI API key for GPT-4 Mini model | (empty, required) |
+| `OPENAI_MODEL` | OpenAI model for extraction | `gpt-4.1-mini` |
+| `OPENAI_TIMEOUT_SECONDS` | API call timeout | `25` |
+| `RATE_LIMIT_HOURLY` | Max extractions per user per hour | `10` |
+| `RATE_LIMIT_DAILY` | Max extractions per user per day | `50` |
+
 ## Local Run
 
 Install dependencies:
 
 ```bash
-python3 -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
@@ -171,6 +244,10 @@ Run API:
 ```bash
 uvicorn app.main:app --reload
 ```
+
+API will be available at `http://localhost:8000`
+- Docs: `http://localhost:8000/docs` (Swagger UI)
+- ReDoc: `http://localhost:8000/redoc`
 
 ## Docker Run
 
@@ -185,6 +262,8 @@ Run:
 ```bash
 docker run --rm -p 8000:8000 --env-file .env sharecart-ai-service:latest
 ```
+
+**Note**: The Dockerfile uses Python 3.12 slim and copies `.env.example` as fallback (not `.env`). Ensure sensitive values are passed via `--env-file` or `-e` flags.
 
 ## Deploy on Render
 
@@ -275,3 +354,97 @@ Common statuses:
 - `422` validation error
 - `429` rate limit exceeded
 - `500` AI processing failure
+
+## Troubleshooting
+
+### OpenAI API Key Missing/Invalid
+```
+Error: "Unable to extract items from image" (500)
+```
+**Solution**: Verify `OPENAI_API_KEY` is set and valid. Check OpenAI dashboard for remaining credits.
+
+### JWT Validation Failure
+```
+Error: "Invalid token" (401)
+```
+**Solution**: Ensure `JWT_SECRET` in `.env` matches the Spring Boot backend secret exactly.
+
+### Rate Limit Exceeded
+```
+Error: "Rate limit exceeded" (429)
+```
+**Solution**: User has exceeded hourly (10) or daily (50) scan limits. Limits reset hourly/daily based on UTC time.
+
+### Image Processing Errors
+```
+Error: "Invalid image format" (422)
+```
+**Solution**: Ensure image is one of: `jpg`, `jpeg`, `png`, `webp`. Max size is 10 MB.
+
+### Python Version Mismatch
+```
+Error: "Unsupported operand type(s)" or type annotation errors
+```
+**Solution**: Verify Python 3.12+ is installed. Check with `python3 --version`.
+
+## Known Limitations
+
+- **Single-instance rate limiting**: In-memory rate limiting works only for single-instance deployments. For multi-instance scaling on Render, implement Redis-backed rate limiting.
+- **Latitude/longitude**: Currently stored but not used in extraction logic. Intended for future geo-tagging features.
+- **No OCR fallback**: If OpenAI fails, service returns error. No local OCR fallback is implemented.
+- **Image processing**: Deskew and contrast enhancement may reduce quality for heavily damaged/bent receipts.
+- **Stateless**: No receipt history or caching. Each request is independent.
+
+## Development & Debugging
+
+### Enable Verbose Logging
+
+```bash
+LOG_LEVEL=DEBUG uvicorn app.main:app --reload
+```
+
+### Run Tests
+
+```bash
+pytest app/tests -q          # Quick run
+pytest app/tests -v          # Verbose
+pytest app/tests -k auth     # Run specific test
+```
+
+### Run Smoke Test Locally
+
+With a real JWT from Spring Boot:
+
+```bash
+API_URL=http://localhost:8000 \
+JWT_TOKEN="<your_jwt_token>" \
+IMAGE_PATH="/path/to/test_receipt.jpg" \
+SCAN_TYPE=RECEIPT \
+./scripts/smoke_test.sh
+```
+
+### Profiling
+
+Add to `app/main.py` before `app.include_router()`:
+
+```python
+from fastapi_slowapi import Limiter
+from fastapi import Request
+import time
+
+@app.middleware("http")
+async def add_process_time_header(request: Request, call_next):
+    start_time = time.time()
+    response = await call_next(request)
+    process_time = time.time() - start_time
+    response.headers["X-Process-Time"] = str(process_time)
+    return response
+```
+
+## License
+
+Internal/Private - ShareCart Inc.
+
+## Support
+
+For issues or questions, contact the development team or file an issue in the internal repository.
